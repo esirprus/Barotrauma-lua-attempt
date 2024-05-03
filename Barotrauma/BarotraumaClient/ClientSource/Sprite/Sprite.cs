@@ -221,7 +221,7 @@ namespace Barotrauma
                 if (!ToolBox.IsProperFilenameCase(file))
                 {
 #if DEBUG
-                    DebugConsole.ThrowError("Texture file \"" + file + "\" has incorrect case!", contentPackage: contentPackage);
+                    DebugConsole.AddWarning("Texture file \"" + file + "\" has incorrect case!", contentPackage: contentPackage);
 #endif
                 }
 
