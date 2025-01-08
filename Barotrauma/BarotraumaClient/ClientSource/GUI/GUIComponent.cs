@@ -246,6 +246,57 @@ namespace Barotrauma
         {
             get { return new Vector2(Rect.Center.X, Rect.Center.Y); }
         }
+        
+        /// <summary>
+        /// Clamps the component's rect position to the specified area. Does not resize the component.
+        /// </summary>
+        /// <param name="clampArea">Area to contain the Rect of this component to</param>
+        public void ClampToArea(Rectangle clampArea)
+        {
+            Rectangle componentRect = Rect;
+
+            int x = componentRect.X;
+            int y = componentRect.Y;
+
+            // Adjust the X position
+            if (componentRect.Width <= clampArea.Width)
+            {
+                if (componentRect.Left < clampArea.Left)
+                {
+                    x = clampArea.Left;
+                }
+                else if (componentRect.Right > clampArea.Right)
+                {
+                    x = clampArea.Right - componentRect.Width;
+                }
+            }
+            else
+            {
+                // Component is wider than clamp area, osition it to overlap as much as possible
+                x = clampArea.Left - (componentRect.Width - clampArea.Width) / 2;
+            }
+
+            // Adjust the Y position
+            if (componentRect.Height <= clampArea.Height)
+            {
+                if (componentRect.Top < clampArea.Top)
+                {
+                    y = clampArea.Top;
+                }
+                else if (componentRect.Bottom > clampArea.Bottom)
+                {
+                    y = clampArea.Bottom - componentRect.Height;
+                }
+            }
+            else
+            {
+                // Component is taller than clamp area, osition it to overlap as much as possible
+                y = clampArea.Top - (componentRect.Height - clampArea.Height) / 2;
+            }
+            
+            Point moveAmount = new Point(x - componentRect.X, y - componentRect.Y);
+            RectTransform.ScreenSpaceOffset += moveAmount;
+        }
 
         protected Rectangle ClampRect(Rectangle r)
         {
@@ -815,7 +866,8 @@ namespace Barotrauma
         protected virtual void SetAlpha(float a)
         {
             color = new Color(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f, a);
-            hoverColor = new Color(hoverColor.R / 255.0f, hoverColor.G / 255.0f, hoverColor.B / 255.0f, a);;
+            hoverColor = new Color(hoverColor.R / 255.0f, hoverColor.G / 255.0f, hoverColor.B / 255.0f, a);
+            disabledColor = new Color(disabledColor.R / 255.0f, disabledColor.G / 255.0f, disabledColor.B / 255.0f, a);
         }
 
         public virtual void Flash(Color? color = null, float flashDuration = 1.5f, bool useRectangleFlash = false, bool useCircularFlash = false, Vector2? flashRectInflate = null)
@@ -835,15 +887,29 @@ namespace Barotrauma
             flashColor = (color == null) ? GUIStyle.Red : (Color)color;
         }
 
-        public void FadeOut(float duration, bool removeAfter, float wait = 0.0f, Action onRemove = null)
+        public void FadeOut(float duration, bool removeAfter, float wait = 0.0f, Action onRemove = null, bool alsoChildren = false)
         {
             CoroutineManager.StartCoroutine(LerpAlpha(0.0f, duration, removeAfter, wait, onRemove));
+            if (alsoChildren)
+            {
+                foreach (var child in Children)
+                {
+                    child.FadeOut(duration, removeAfter, wait, onRemove, alsoChildren);
+                }
+            }
         }
 
-        public void FadeIn(float wait, float duration)
+        public void FadeIn(float wait, float duration, bool alsoChildren = false)
         {
             SetAlpha(0.0f);
             CoroutineManager.StartCoroutine(LerpAlpha(1.0f, duration, false, wait));
+            if (alsoChildren)
+            {
+                foreach (var child in Children)
+                {
+                    child.FadeIn(wait, duration, alsoChildren);
+                }
+            }
         }
 
         public void SlideIn(float wait, float duration, int amount, SlideDirection direction)

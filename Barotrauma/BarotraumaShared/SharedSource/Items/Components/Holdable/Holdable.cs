@@ -1,10 +1,12 @@
-﻿using Barotrauma.Networking;
+﻿using Barotrauma.Abilities;
+using Barotrauma.Networking;
 using FarseerPhysics;
 using FarseerPhysics.Dynamics;
 using FarseerPhysics.Dynamics.Contacts;
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Xml.Linq;
 
@@ -12,13 +14,15 @@ namespace Barotrauma.Items.Components
 {
     partial class Holdable : Pickable, IServerSerializable, IClientSerializable
     {
-        private readonly struct EventData : IEventData
+        private readonly struct AttachEventData : IEventData
         {
             public readonly Vector2 AttachPos;
-            
-            public EventData(Vector2 attachPos)
+            public readonly Character Attacher;
+
+            public AttachEventData(Vector2 attachPos, Character attacher)
             {
                 AttachPos = attachPos;
+                Attacher = attacher;
             }
         }
 
@@ -41,6 +45,9 @@ namespace Barotrauma.Items.Components
         private bool attachable, attached, attachedByDefault;
         private Voronoi2.VoronoiCell attachTargetCell;
         private PhysicsBody body;
+
+        public readonly ImmutableDictionary<StatTypes, float> HoldableStatValues;
+
         public PhysicsBody Pusher
         {
             get;
@@ -220,6 +227,44 @@ namespace Barotrauma.Items.Components
             set;
         }
 
+        /// <summary>
+        /// For setting the handle positions using status effects
+        /// </summary>
+        public Vector2 Handle1
+        {
+            get { return ConvertUnits.ToDisplayUnits(handlePos[0]); }
+            set 
+            { 
+                handlePos[0] = ConvertUnits.ToSimUnits(value); 
+                if (item.FlippedX)
+                {
+                    handlePos[0].X = -handlePos[0].X;
+                }
+                if (!secondHandlePosDefined)
+                {
+                    Handle2 = value;
+                }
+            }
+        }
+
+        /// <summary>
+        /// For setting the handle positions using status effects
+        /// </summary>
+        public Vector2 Handle2
+        {
+            get { return ConvertUnits.ToDisplayUnits(handlePos[1]); }
+            set 
+            { 
+                handlePos[1] = ConvertUnits.ToSimUnits(value);
+                if (item.FlippedX)
+                {
+                    handlePos[1].X = -handlePos[1].X;
+                }
+            }
+        }
+
+        private bool secondHandlePosDefined;
+
         public Holdable(Item item, ContentXElement element)
             : base(item, element)
         {
@@ -249,9 +294,14 @@ namespace Barotrauma.Items.Components
             {
                 int index = i - 1;
                 string attributeName = "handle" + i;
-                var attribute = element.GetAttribute(attributeName);
                 // If no value is defind for handle2, use the value of handle1.
-                var value = attribute != null ? ConvertUnits.ToSimUnits(XMLExtensions.ParseVector2(attribute.Value)) : previousValue;
+                Vector2 value = previousValue;
+                var attribute = element.GetAttribute(attributeName);
+                if (attribute != null)
+                {
+                    secondHandlePosDefined = i > 1;
+                    value = ConvertUnits.ToSimUnits(XMLExtensions.ParseVector2(attribute.Value));
+                }
                 handlePos[index] = value;
                 previousValue = value;
             }
@@ -287,6 +337,22 @@ namespace Barotrauma.Items.Components
                 }
             }
             characterUsable = element.GetAttributeBool("characterusable", true);
+
+            Dictionary<StatTypes, float> statValues = new Dictionary<StatTypes, float>();
+            foreach (var subElement in element.GetChildElements("statvalue"))
+            {
+                StatTypes statType = CharacterAbilityGroup.ParseStatType(subElement.GetAttributeString("stattype", ""), Name);
+                float statValue = subElement.GetAttributeFloat("value", 0f);
+                if (statValues.ContainsKey(statType))
+                {
+                    statValues[statType] += statValue;
+                }
+                else
+                {
+                    statValues.TryAdd(statType, statValue);
+                }                
+            }
+            HoldableStatValues = statValues.ToImmutableDictionary();
         }
 
         private bool OnPusherCollision(Fixture sender, Fixture other, Contact contact)
@@ -304,9 +370,9 @@ namespace Barotrauma.Items.Components
         }
 
         private bool loadedFromInstance;
-        public override void Load(ContentXElement componentElement, bool usePrefabValues, IdRemap idRemap)
+        public override void Load(ContentXElement componentElement, bool usePrefabValues, IdRemap idRemap, bool isItemSwap)
         {
-            base.Load(componentElement, usePrefabValues, idRemap);
+            base.Load(componentElement, usePrefabValues, idRemap, isItemSwap);
 
             loadedFromInstance = true;
 
@@ -734,21 +800,14 @@ namespace Barotrauma.Items.Components
 
                 if (GameMain.NetworkMember != null)
                 {
-                    if (character != Character.Controlled)
-                    {
-                        return false;
-                    }
-                    else if (GameMain.NetworkMember.IsServer)
-                    {
-                        return false;
-                    }
-                    else
-                    {
 #if CLIENT
+                    if (character == Character.Controlled)
+                    {
                         Vector2 attachPos = ConvertUnits.ToSimUnits(GetAttachPosition(character));
-                        item.CreateClientEvent(this, new EventData(attachPos));
-#endif
+                        item.CreateClientEvent(this, new AttachEventData(attachPos, character));
                     }
+#endif
+                    //don't attach at this point in MP: instead rely on the network events created above
                     return false;
                 }
                 else
@@ -803,9 +862,13 @@ namespace Barotrauma.Items.Components
 
             if (user.Submarine != null)
             {
+                //we must add some "padding" to the raycast to ensure it reaches all the way to a wall
+                //otherwise the cursor might be outside a wall, but the grid cell it's in might be partially inside
+                Vector2 padding =  Submarine.GridSize * new Vector2(Math.Sign(mouseDiff.X), Math.Sign(mouseDiff.Y));
+
                 if (Submarine.PickBody(
                     ConvertUnits.ToSimUnits(user.Position), 
-                    ConvertUnits.ToSimUnits(user.Position + mouseDiff), collisionCategory: Physics.CollisionWall) != null)
+                    ConvertUnits.ToSimUnits(user.Position + mouseDiff + padding), collisionCategory: Physics.CollisionWall) != null)
                 {
                     attachPos = userPos + mouseDiff * Submarine.LastPickedFraction + offset;
 

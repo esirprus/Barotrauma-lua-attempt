@@ -116,9 +116,9 @@ namespace Barotrauma.Items.Components
             IsActive = true;
         }
 
-        public override void Load(ContentXElement componentElement, bool usePrefabValues, IdRemap idRemap)
+        public override void Load(ContentXElement componentElement, bool usePrefabValues, IdRemap idRemap, bool isItemSwap)
         {
-            base.Load(componentElement, usePrefabValues, idRemap);
+            base.Load(componentElement, usePrefabValues, idRemap, isItemSwap);
             channelMemory = componentElement.GetAttributeIntArray("channelmemory", new int[ChannelMemorySize]);
             if (channelMemory.Length != ChannelMemorySize)
             {
@@ -231,17 +231,22 @@ namespace Barotrauma.Items.Components
         {
             var should = GameMain.LuaCs.Hook.Call<bool?>("wifiSignalTransmitted", this, signal, sentFromChat);
 
-            if (should != null && should.Value)
-                return;
-
-            if (sentFromChat)
-            {
-                item.LastSentSignalRecipients.Clear();
-            }
+            if (should != null && should.Value) { return; }
 
             bool chatMsgSent = false;
 
             var receivers = GetReceiversInRange();
+            if (sentFromChat)
+            {
+                //if sent from chat, we need to reset the "signal chain" at this point
+                //so we can correctly detect which components the signal has already passed through to avoid infinite loops
+                //only relevant for signals originating from the chat - normally this is handled in Item.SendSignal
+                item.LastSentSignalRecipients.Clear();
+                foreach (WifiComponent receiver in receivers)
+                {
+                    receiver.item.LastSentSignalRecipients.Clear();
+                }
+            }
             foreach (WifiComponent wifiComp in receivers)
             {
                 if (sentFromChat && !wifiComp.LinkToChat) { continue; }
@@ -301,7 +306,7 @@ namespace Barotrauma.Items.Components
                         {
                             if (GameMain.Client == null)
                             {
-                                GameMain.GameSession?.CrewManager?.AddSinglePlayerChatMessage(signal.source?.Name ?? "", signal.value, ChatMessageType.Radio, sender: null);
+                                GameMain.GameSession?.CrewManager?.AddSinglePlayerChatMessage(signal.source?.Name ?? "", signal.value, ChatMessageType.Radio, sender: item);
                             }
                         }
 #elif SERVER
@@ -311,7 +316,7 @@ namespace Barotrauma.Items.Components
                             if (recipientClient != null)
                             {
                                 GameMain.Server.SendDirectChatMessage(
-                                    ChatMessage.Create(signal.source?.Name ?? "", chatMsg, ChatMessageType.Radio, null), recipientClient);
+                                    ChatMessage.Create(signal.source?.Name ?? "", chatMsg, ChatMessageType.Radio, item), recipientClient);
                             }
                         }
 #endif

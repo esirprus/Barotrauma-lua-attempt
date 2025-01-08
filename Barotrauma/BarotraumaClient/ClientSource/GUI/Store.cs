@@ -1562,7 +1562,7 @@ namespace Barotrauma
             bool locationHasDealOnItem = isSellingRelatedList ?
                 ActiveStore.RequestedGoods.Contains(pi.ItemPrefab) : ActiveStore.DailySpecials.Contains(pi.ItemPrefab);
             GUITextBlock nameBlock = new GUITextBlock(new RectTransform(new Vector2(1.0f, 0.4f), nameAndQuantityGroup.RectTransform),
-                pi.ItemPrefab.Name, font: GUIStyle.SubHeadingFont, textAlignment: Alignment.BottomLeft)
+                RichString.Rich(pi.ItemPrefab.Name), font: GUIStyle.SubHeadingFont, textAlignment: Alignment.BottomLeft)
             {
                 CanBeFocused = false,
                 Shadow = locationHasDealOnItem,
@@ -2108,13 +2108,13 @@ namespace Barotrauma
                 deliveryPrompt.Buttons[0].OnClicked = (btn, userdata) =>
                 {
                     ConfirmPurchase(deliverImmediately: true);
-                    deliveryPrompt.Close();
+                    deliveryPrompt?.Close();
                     return true;
                 };
                 deliveryPrompt.Buttons[1].OnClicked = (btn, userdata) =>
                 {
                     ConfirmPurchase(deliverImmediately: false);
-                    deliveryPrompt.Close();
+                    deliveryPrompt?.Close();
                     return true;
                 };
             }

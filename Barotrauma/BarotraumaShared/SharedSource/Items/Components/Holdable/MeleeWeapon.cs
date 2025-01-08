@@ -174,9 +174,11 @@ namespace Barotrauma.Items.Components
 
         public override void Drop(Character dropper, bool setTransform = true)
         {
+            //end hit first (which sets the weapon to the "held" state, with disabled physics and no special collision detection)
+            EndHit();
+            //ensure the physics body is enabled
+            item.body.PhysEnabled = true;
             base.Drop(dropper, setTransform);
-            hitting = false;
-            hitPos = 0.0f;
         }
 
         public override void UpdateBroken(float deltaTime, Camera cam)
@@ -251,10 +253,7 @@ namespace Barotrauma.Items.Components
                 }
                 if (hitPos < -MathHelper.Pi)
                 {
-                    RestoreCollision();
-                    hitting = false;
-                    hitTargets.Clear();
-                    hitPos = 0;
+                    EndHit();
                 }
             }
         }
@@ -291,12 +290,20 @@ namespace Barotrauma.Items.Components
             User = character;
         }
 
+        private void EndHit()
+        {
+            RestoreCollision();
+            hitting = false;
+            hitTargets.Clear();
+            hitPos = 0;
+        }
+
         private void RestoreCollision()
         {
             impactQueue.Clear();
             item.body.FarseerBody.OnCollision -= OnCollision;
             item.body.CollisionCategories = Physics.CollisionItem;
-            item.body.CollidesWith = Physics.CollisionWall;
+            item.body.CollidesWith = Physics.DefaultItemCollidesWith;
             item.body.FarseerBody.IsBullet = false;
             item.body.PhysEnabled = false;
         }
@@ -380,6 +387,7 @@ namespace Barotrauma.Items.Components
                 }
                 else if (f2.Body.UserData is Holdable holdable && holdable.CanPush)
                 {
+                    if (holdable.Item.GetRootInventoryOwner() == User) { return false; }
                     hitTargets.Add(holdable.Item);
                 }
             }
@@ -412,7 +420,7 @@ namespace Barotrauma.Items.Components
             Limb targetLimb = target.UserData as Limb;
             Character targetCharacter = targetLimb?.character ?? target.UserData as Character;
             Structure targetStructure = target.UserData as Structure ?? targetFixture.UserData as Structure;
-            Item targetItem = target.UserData as Item ?? targetFixture.UserData as Item;
+            Item targetItem = target.UserData is Holdable h ? h.Item : target.UserData as Item ?? targetFixture.UserData as Item;
             Entity targetEntity = targetCharacter ?? targetStructure ?? targetItem ?? target.UserData as Entity;
             GameMain.LuaCs.Hook.Call("meleeWeapon.handleImpact", this, target);
             if (Attack != null)
@@ -453,10 +461,9 @@ namespace Barotrauma.Items.Components
                     }
 #endif
                 }
-                else if (target.UserData is Holdable holdable && holdable.CanPush)
+                else if (target.UserData is Holdable { CanPush: true } holdable)
                 {
                     if (holdable.Item.Removed) { return; }
-                    Attack.DoDamage(user, holdable.Item, item.WorldPosition, 1.0f);
                     RestoreCollision();
                     hitting = false;
                     User = null;
@@ -476,8 +483,8 @@ namespace Barotrauma.Items.Components
             }
             if (GameMain.NetworkMember is { IsServer: true } server && targetEntity != null)
             {
-                server.CreateEntityEvent(item, new Item.ApplyStatusEffectEventData(conditionalActionType, targetItemComponent: null, targetCharacter, targetLimb, useTarget: targetEntity));
-                server.CreateEntityEvent(item, new Item.ApplyStatusEffectEventData(ActionType.OnUse, targetItemComponent: null, targetCharacter, targetLimb, useTarget: targetEntity));
+                server.CreateEntityEvent(item, new Item.ApplyStatusEffectEventData(conditionalActionType, targetItemComponent: this, targetCharacter, targetLimb, useTarget: targetEntity));
+                server.CreateEntityEvent(item, new Item.ApplyStatusEffectEventData(ActionType.OnUse, targetItemComponent: this, targetCharacter, targetLimb, useTarget: targetEntity));
                 serverLogger ??= new System.Text.StringBuilder();
                 serverLogger.Clear();
                 serverLogger.Append($"{picker?.LogName} used {item.Name}");

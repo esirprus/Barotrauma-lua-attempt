@@ -77,6 +77,9 @@ namespace Barotrauma.Items.Components
 
         public readonly ContentXElement originalElement;
 
+        /// <summary>
+        /// The default delay for delayed client-side corrections (see <see cref="StartDelayedCorrection"/>.
+        /// </summary>
         protected const float CorrectionDelay = 1.0f;
         protected CoroutineHandle delayedCorrectionCoroutine;
 
@@ -663,10 +666,13 @@ namespace Barotrauma.Items.Components
 
         protected virtual void RemoveComponentSpecific()
         {
+#if CLIENT
+            HUDOverlay?.Remove(); 
+            HUDOverlay = null;
+#endif
         }
         
-        protected string GetTextureDirectory(ContentXElement subElement)
-            => subElement.DoesAttributeReferenceFileNameAlone("texture") ? Path.GetDirectoryName(item.Prefab.FilePath) : string.Empty;
+        protected string GetTextureDirectory(ContentXElement subElement) => item.Prefab.GetTexturePath(subElement, item.Prefab.ParentPrefab);
 
         public bool HasRequiredSkills(Character character)
         {
@@ -796,12 +802,25 @@ namespace Barotrauma.Items.Components
         /// </summary>
         private bool CheckIdCardAccess(RelatedItem relatedItem, IdCard idCard)
         {
-            if (item.Submarine != null && item.Submarine != GameMain.NetworkMember?.RespawnManager?.RespawnShuttle)
+            if (item.Submarine is { IsRespawnShuttle: false })
             {
                 //id cards don't work in enemy subs (except on items that only require the default "idcard" tag)
                 if (idCard.TeamID != CharacterTeamType.None && idCard.TeamID != item.Submarine.TeamID && relatedItem.Identifiers.Any(id => id != "idcard"))
                 {
-                    return false;
+                    if (GameMain.GameSession?.GameMode is PvPMode)
+                    {
+                        if (item.Submarine.TeamID != CharacterTeamType.FriendlyNPC && item.Submarine.TeamID != CharacterTeamType.None)
+                        {
+                            // In PvP, always allow access also to FriendlyNPC and None -> restrict access only to the enemy sub.
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        return false;
+                    }
                 }
                 else if (idCard.SubmarineSpecificID != 0 && item.Submarine.SubmarineSpecificIDTag != idCard.SubmarineSpecificID)
                 {
@@ -941,14 +960,16 @@ namespace Barotrauma.Items.Components
 #endif
         }
 
-        public virtual void Load(ContentXElement componentElement, bool usePrefabValues, IdRemap idRemap)
+        public virtual void Load(ContentXElement componentElement, bool usePrefabValues, IdRemap idRemap, bool isItemSwap)
         {
             if (componentElement != null) 
             { 
                 foreach (XAttribute attribute in componentElement.Attributes())
                 {
                     if (!SerializableProperties.TryGetValue(attribute.NameAsIdentifier(), out SerializableProperty property)) { continue; }
-                    if (property.OverridePrefabValues || !usePrefabValues)
+                    if (property.OverridePrefabValues || 
+                        !usePrefabValues || 
+                        (isItemSwap && property.GetAttribute<Editable>() is { TransferToSwappedItem: true }))
                     {
                         property.TrySetValue(this, attribute.Value);
                     }
